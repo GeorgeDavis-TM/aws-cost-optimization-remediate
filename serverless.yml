@@ -1,0 +1,52 @@
+org: georgedavis
+app: aws-cost-optimization-remediate
+service: aws-cost-optimization-remediate
+
+frameworkVersion: '2'
+
+
+provider:
+  name: aws
+  runtime: python3.8
+  stage: prod
+  region: us-west-2
+  memorySize: 128
+  timeout: 60
+  logRetentionInDays: 14
+  tags:
+    BusinessCase: CostOptimization
+    Owner: georged
+    CodeSource: https://github.com/GeorgeDavis-TM/aws-cost-optimization-remediate.git
+  stackTags:
+    BusinessCase: CostOptimization
+    Owner: georged
+    CodeSource: https://github.com/GeorgeDavis-TM/aws-cost-optimization-remediate.git
+  iam:
+    role:
+      name: aws-cost-optimization-remediate
+      path: /
+      statements:
+        - Effect: 'Allow'
+          Resource: '*'
+          Action: 
+            - 'ec2:DescribeInstances'
+            - 'ec2:DescribeInstanceTypes'
+            - 'ec2:StopInstances'
+            - 'cloudwatch:GetMetricData'
+            - 'cloudwatch:GetMetricStatistics'
+            - 'cloudwatch:ListMetrics'
+      tags:
+        BusinessCase: CostOptimization
+        Owner: georged
+        CodeSource: https://github.com/GeorgeDavis-TM/aws-cost-optimization-remediate.git
+  lambdaHashingVersion: 20201221
+
+functions:
+  main:
+    handler: handler.main
+    description: Scheduled run of AWS Cost Optimization Tasks    
+    events:
+      - schedule:
+          name: aws-cost-optimization-remediate
+          description: 'AWS Nightly Cost Optimization Schedule'
+          rate: cron(0 4 * * ? *)

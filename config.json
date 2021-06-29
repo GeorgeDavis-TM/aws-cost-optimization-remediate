@@ -1,0 +1,11 @@
+{
+    "remed8": {
+        "EC2": {
+            "stopResources": true,
+            "downgradeResources": false
+        }
+    },
+    "exceptionTag": {
+        "keyName": "ResourceException"        
+    }
+}
