@@ -13,6 +13,8 @@ provider:
   memorySize: 128
   timeout: 60
   logRetentionInDays: 14
+  environment:
+    minThresholdCpuUtilizationPercentage: 5
   tags:
     BusinessCase: CostOptimization
     Owner: georged
@@ -20,7 +22,7 @@ provider:
   stackTags:
     BusinessCase: CostOptimization
     Owner: georged
-    CodeSource: https://github.com/GeorgeDavis-TM/aws-cost-optimization-remediate.git
+    CodeSource: https://github.com/GeorgeDavis-TM/aws-cost-optimization-remediate.git    
   iam:
     role:
       name: aws-cost-optimization-remediate
@@ -32,9 +34,8 @@ provider:
             - 'ec2:DescribeInstances'
             - 'ec2:DescribeInstanceTypes'
             - 'ec2:StopInstances'
-            - 'cloudwatch:GetMetricData'
-            - 'cloudwatch:GetMetricStatistics'
-            - 'cloudwatch:ListMetrics'
+            - 'ec2:CreateTags'
+            - 'cloudwatch:GetMetricData'            
       tags:
         BusinessCase: CostOptimization
         Owner: georged

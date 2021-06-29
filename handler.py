@@ -1,6 +1,9 @@
 import json
 import boto3
+import os
 import datetime
+
+from botocore.exceptions import MissingParametersError
 
 f = open("config.json", "r")
 configDict = json.loads(f.read())
@@ -14,21 +17,50 @@ def ec2GetInstanceTypes(regionName):
     
     return ec2Client.describe_instance_types()
 
-def ec2StopInstances(regionName, instanceId):
+def ec2StopInstances(regionName, instance):
 
-    ec2Client = boto3.client('ec2', region_name=regionName)   
+    ec2Client = boto3.client('ec2', region_name=regionName)  
+
+    if instance["HibernationOptions"]["Configured"]:
+        print("\nInstance hibernation supported. Hibernating instance " + instance["InstanceId"] + " ...")
+    else:
+        print("\nStopping instance " + instance["InstanceId"] + " ...")
+
+    stopTime = datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%SZ")
 
     ec2StopInstanceResponse = ec2Client.stop_instances(
         InstanceIds=[
-            instanceId,
+            instance["InstanceId"],
         ],
-        Hibernate=False,
+        Hibernate=instance["HibernationOptions"]["Configured"],
         DryRun=False
     )
 
     print(str(ec2StopInstanceResponse))
 
-    return ec2StopInstanceResponse
+    ec2TagInstance(regionName, instance["InstanceId"], stopTime)
+
+def ec2TagInstance(regionName, instanceId, actionTime):
+
+    ec2Client = boto3.client('ec2', region_name=regionName)
+
+    ec2TagInstanceResponse = ec2Client.create_tags(        
+        Resources=[
+            instanceId,
+        ],
+        Tags=[
+            {
+                'Key': 'StoppedBy',
+                'Value': 'aws-cost-optimization-remediate/prod/us-west-2'
+            },
+            {
+                'Key': 'StoppedTime',
+                'Value': actionTime
+            }
+        ]
+    )
+
+    print(str(ec2TagInstanceResponse))
 
 def ec2DescribeInstances(regionName, instanceId=None):
 
@@ -38,32 +70,39 @@ def ec2DescribeInstances(regionName, instanceId=None):
 
     if instanceId:
         print("\nGetting instance " + instanceId + " in " + regionName + " ...")
-        ec2DescribeInstancesResponse = ec2Client.describe_instances(
+        ec2DescribeInstancesResponse = ec2Client.describe_instances(            
             InstanceIds=[
                 instanceId,
             ]
         )
     else:
-        print("\nGetting all instances in " + regionName + " ...")
-        ec2DescribeInstancesResponse = ec2Client.describe_instances()
+        print("\nGetting all running instances in " + regionName + " ...")
+        ec2DescribeInstancesResponse = ec2Client.describe_instances(
+            Filters=[
+                {
+                    'Name': 'instance-state-name',
+                    'Values': [
+                        'running'
+                    ]
+                }
+            ]
+        )
 
     return ec2DescribeInstancesResponse
 
-def filterInstancesByTags(regionName, instanceId):
-
-    # ec2DescribeInstancesResponse = ec2DescribeInstances(regionName, instanceId)
+def filterInstancesByTags(instance):    
 
     resourceExceptionFlag = False
 
-    for tags in instanceId["Tags"]:
+    for tags in instance["Tags"]:
         if configDict["exceptionTag"]["keyName"].lower() in str(tags["Key"]).lower():
             resourceExceptionFlag = True
             
     return not resourceExceptionFlag
 
-def getInstanceMetricStats(regionName, instanceId, startTime, endTime):
+def getInstanceMetricStats(regionName, instanceId, minThresholdCpuUtilPercent, startTime, endTime):
 
-    cloudwatchClient = boto3.client('cloudwatch')
+    cloudwatchClient = boto3.client('cloudwatch', region_name=regionName)  
 
     getInstanceMetricsResponse = cloudwatchClient.get_metric_data(
         MetricDataQueries=[
@@ -76,7 +115,7 @@ def getInstanceMetricStats(regionName, instanceId, startTime, endTime):
                         'Dimensions': [
                             {
                                 'Name': 'InstanceId',
-                                'Value': 'i-057b204c319a4b2ac'
+                                'Value': instanceId
                             }
                         ]
                     },
@@ -88,56 +127,24 @@ def getInstanceMetricStats(regionName, instanceId, startTime, endTime):
                 'ReturnData': True
             },
         ],
-        StartTime="2021-06-27T22:48:00",
-        EndTime="2021-06-28T22:53:00"
+        StartTime=startTime,
+        EndTime=endTime
     )
 
-    print(str(getInstanceMetricsResponse["MetricDataResults"]))
+    averageUsagePercent = sum(getInstanceMetricsResponse["MetricDataResults"][0]["Values"])/len(getInstanceMetricsResponse["MetricDataResults"][0]["Values"])
 
-    # getInstanceMetricStatsResponse = cloudwatchClient.get_metric_statistics(
-    #     Namespace='AWS/EC2',
-    #     MetricName='CPUUtilization',
-    #     Dimensions=[
-    #         {
-    #             'Name': 'InstanceId',
-    #             'Value': 'i-057b204c319a4b2ac'
-    #         },
-    #     ],
-    #     StartTime=startTime,
-    #     EndTime=endTime,
-    #     Period=300,
-    #     Statistics=[
-    #         'Average',
-    #     ],
-    #     Unit='Percent'
-    # )
-    
-    # print(str(getInstanceMetricStatsResponse))
+    print("\nAverage CPU Utilization is " + " below " if averageUsagePercent < minThresholdCpuUtilPercent else " above " + minThresholdCpuUtilPercent + "% - " + str(averageUsagePercent))
 
-    # listMetricsResponse =  cloudwatchClient.list_metrics(
-    #     Namespace='AWS/EC2',
-    #     MetricName='CPUUtilization',
-    #     Dimensions=[
-    #         {
-    #             'Name': 'InstanceId',
-    #             'Value': str(instanceId)
-    #         },
-    #     ]
-    # )
+    if averageUsagePercent < int(minThresholdCpuUtilPercent):
+        return True
 
-    # print(str(listMetricsResponse))
+    return False
 
 def main(event, context):
 
-    startTime = (datetime.datetime.now() - datetime.timedelta(days=1)) # (datetime.datetime.now() - datetime.timedelta(days=1)).isoformat()
-    endTime = datetime.datetime.now() # datetime.datetime.now().isoformat()
-
-    # aws cloudwatch get-metric-statistics --metric-name CPUUtilization --start-time 2021-06-27T22:48:00 --end-time 2021-06-28T22:53:00 --period 300 --namespace AWS/EC2 --statistics Average --dimensions Name=InstanceId,Value=i-057b204c319a4b2ac
-
-    print((datetime.datetime.now() - datetime.timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S"))
-    print(str(type(startTime)))
-    print(datetime.datetime.now().strftime("%Y-%m-%dT%H:%M:%S"))
-    print(str(type(endTime)))
+    minThresholdCpuUtilPercent = os.environ.get("minThresholdCpuUtilizationPercentage")
+    startTime = (datetime.datetime.now() - datetime.timedelta(hours=4))
+    endTime = datetime.datetime.now()
 
     for regionName in supportedRegions:
         
@@ -146,7 +153,10 @@ def main(event, context):
 
         for instance in ec2DescribeInstancesResponse["Reservations"]:
 
-            if filterInstancesByTags(regionName, instance["Instances"][0]):
+            if filterInstancesByTags(instance["Instances"][0]):
 
                 print("\nInstance Id - " + str(instance["Instances"][0]["InstanceId"]))
-                getInstanceMetricStats(regionName, instance["Instances"][0]["InstanceId"], startTime, endTime)
+                
+                if getInstanceMetricStats(regionName, instance["Instances"][0]["InstanceId"], minThresholdCpuUtilPercent, startTime, endTime):
+
+                    ec2StopInstances(regionName, instance["Instances"][0])
