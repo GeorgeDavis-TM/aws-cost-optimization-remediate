@@ -133,12 +133,12 @@ def getInstanceMetricStats(regionName, instanceId, minThresholdCpuUtilPercent, s
 
     averageUsagePercent = sum(getInstanceMetricsResponse["MetricDataResults"][0]["Values"])/len(getInstanceMetricsResponse["MetricDataResults"][0]["Values"])
 
-    print("\nAverage CPU Utilization is " + " below " if averageUsagePercent < minThresholdCpuUtilPercent else " above " + minThresholdCpuUtilPercent + "% - " + str(averageUsagePercent))
-
     if averageUsagePercent < float(minThresholdCpuUtilPercent):
+        print("\nAverage CPU Utilization is " + " below " + minThresholdCpuUtilPercent + "% - " + str(averageUsagePercent))
         return True
-
-    return False
+    else:
+        print("\nAverage CPU Utilization is " + " above " + minThresholdCpuUtilPercent + "% - " + str(averageUsagePercent))
+        return False
 
 def main(event, context):
 
